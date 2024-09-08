@@ -9,30 +9,44 @@
 #define MAX_GRADES 12
 #define MAX_CLASSES 10
 #define SUBJECTS 10
+#define TOP_STUDENTS 10
 
 
 //structs
-
-typedef struct{
+typedef struct Student {
     char first_name[MAX_NAME];
     char last_name[MAX_NAME];
     char phone[MAX_PHONE];
     int grade;
     int class;
-    int grades[10];
+    int grades[SUBJECTS];
     double average_grade;
     struct Student* next;
 } Student;
 
 typedef struct {
-    Student** students;
-    int capacity;
-    int num_students;
+    Student* student;
+    double average_grade;
+} HeapNode;
+
+typedef struct {
+    HeapNode nodes[TOP_STUDENTS];
+    int size;
+} Heap;
+
+typedef struct {
     int class_id;
+    int num_students;
+    Heap* top_students;
+    double total_grade;
+    double average_grade;
 } Class;
 
 typedef struct {
-    Class classes[10];
+    double course_totals[SUBJECTS];
+    int course_counts[SUBJECTS];
+    double course_averages[SUBJECTS];
+    Class classes[MAX_CLASSES];
     int grade_id;
     int num_classes;
 } Grade;
@@ -44,7 +58,7 @@ typedef struct {
 
 typedef struct {
     HashTable hash_table;
-    Grade grades[12];
+    Grade grades[MAX_GRADES];
     int num_of_grades;
     int total_students;
 } School;
@@ -54,22 +68,86 @@ typedef struct {
 //functions
 unsigned long hash(const char* first_name, const char* last_name);
 HashTable* create_hash_table();
-School* read_data_from_file(const char* file_name);
 School* create_school();
+School* read_data_from_file(const char* file_name);
 void insert_student(School* school, Student* student);
 void insertNewStudent(School* school);
 void deleteStudent(School* school);
 void editStudentGrade(School* school);
 void searchStudent(School* school);
 void printAllStudents(School* school);
-void printTopNStudentsPerCourse(School* school);
+void printTopStudentsPerCourse(School* school);
 void printUnderperformedStudents(School* school, int threshold);
 void printAverage(School* school);
 void exportDatabase(School* school, const char* file_name);
 void destroySchool(School* school);
+Heap* create_heap();
+void insert_or_update_heap(Heap* heap, Student* student, double average_grade);
+void heapify_up(Heap* heap, int index);
+void heapify_down(Heap* heap, int index);
+void swap_nodes(HeapNode* a, HeapNode* b);
 
+
+Heap* create_heap() {
+    Heap* heap = (Heap*)malloc(sizeof(Heap));
+    heap->size = 0;
+    return heap;
+}
+
+void swap_nodes(HeapNode* a, HeapNode* b) {
+    HeapNode temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+void insert_or_update_heap(Heap* heap, Student* student, double average_grade) {
+    if (heap->size < TOP_STUDENTS) {
+        // If the heap is not full, add the new student
+        heap->nodes[heap->size].student = student;
+        heap->nodes[heap->size].average_grade = average_grade;
+        heap->size++;
+        heapify_up(heap, heap->size - 1);
+    } else if (average_grade > heap->nodes[0].average_grade) {
+        // If the heap is full and the new grade is higher than the minimum in the heap,
+        // replace the root (minimum) and heapify down
+        heap->nodes[0].student = student;
+        heap->nodes[0].average_grade = average_grade;
+        heapify_down(heap, 0);
+    }
+}
+
+void heapify_up(Heap* heap, int index) {
+    while (index > 0) {
+        int parent = (index - 1) / 2;
+        if (heap->nodes[parent].average_grade <= heap->nodes[index].average_grade) {
+            break;
+        }
+        swap_nodes(&heap->nodes[parent], &heap->nodes[index]);
+        index = parent;
+    }
+}
+
+void heapify_down(Heap* heap, int index) {
+    int smallest = index;
+    int left = 2 * index + 1;
+    int right = 2 * index + 2;
+
+    if (left < heap->size && heap->nodes[left].average_grade < heap->nodes[smallest].average_grade) {
+        smallest = left;
+    }
+
+    if (right < heap->size && heap->nodes[right].average_grade < heap->nodes[smallest].average_grade) {
+        smallest = right;
+    }
+
+    if (smallest != index) {
+        swap_nodes(&heap->nodes[index], &heap->nodes[smallest]);
+        heapify_down(heap, smallest);
+    }
+}
 
 //implementation
+
 unsigned long hash(const char* first_name, const char* last_name) {
     unsigned long hash = 5381;
     int c;
@@ -94,29 +172,38 @@ void insert_student(School* school, Student* student) {
         return;
     }
 
-    Class* class = &school->grades[grade_index].classes[class_index];
+    Grade* grade = &school->grades[grade_index];
+    Class* class = &grade->classes[class_index];
 
-    // Check if we need to resize the students array
-    if (class->num_students >= class->capacity) {
-        int new_capacity = class->capacity * 2;
-        Student** new_students = realloc(class->students, new_capacity * sizeof(Student*));
-        if (!new_students) {
-            printf("Failed to allocate memory for new student\n");
-            return;
-        }
-        class->students = new_students;
-        class->capacity = new_capacity;
+    // Calculate student's average grade
+    int sum = 0;
+    for (int i = 0; i < SUBJECTS; i++) {
+        sum += student->grades[i];
+    }
+    student->average_grade = (double)sum / SUBJECTS;
+
+    // Update grade course totals, counts, and averages
+    for (int i = 0; i < SUBJECTS; i++) {
+        grade->course_totals[i] += student->grades[i];
+        grade->course_counts[i]++;
+        grade->course_averages[i] = grade->course_totals[i] / grade->course_counts[i];
     }
 
-    // Add the student to the class
-    class->students[class->num_students++] = student;
-    school->total_students++;
+    // Update class average
+    class->num_students++;
+    class->total_grade += student->average_grade;
+    class->average_grade = class->total_grade / class->num_students;
+
+    // Insert into top students heap
+    insert_or_update_heap(class->top_students, student, student->average_grade);
 
     // Insert into hash table
     unsigned long index = hash(student->first_name, student->last_name);
     student->next = school->hash_table.buckets[index];
     school->hash_table.buckets[index] = student;
     school->hash_table.size++;
+
+    school->total_students++;
 }
 
 School* create_school() {
@@ -125,25 +212,30 @@ School* create_school() {
 
     memset(school, 0, sizeof(School));
 
-    // Initialize grades and classes
     for (int i = 0; i < MAX_GRADES; i++) {
         school->grades[i].grade_id = i + 1;
         for (int j = 0; j < MAX_CLASSES; j++) {
             school->grades[i].classes[j].class_id = j + 1;
-            school->grades[i].classes[j].capacity = 10;
-            school->grades[i].classes[j].students = malloc(10 * sizeof(Student*));
-            if (!school->grades[i].classes[j].students) {
+            school->grades[i].classes[j].top_students = create_heap();
+            if (!school->grades[i].classes[j].top_students) {
                 // Handle allocation failure
-                // For simplicity, we're not handling this case fully here
                 return NULL;
             }
         }
         school->grades[i].num_classes = MAX_CLASSES;
+        
+        // Initialize course totals, counts, and averages
+        for (int k = 0; k < SUBJECTS; k++) {
+            school->grades[i].course_totals[k] = 0;
+            school->grades[i].course_counts[k] = 0;
+            school->grades[i].course_averages[k] = 0;
+        }
     }
     school->num_of_grades = MAX_GRADES;
 
     return school;
 }
+
 
 School* read_data_from_file(const char* file_name) {
     FILE* file = fopen(file_name, "r");
@@ -193,7 +285,52 @@ School* read_data_from_file(const char* file_name) {
 }
 
 void insertNewStudent(School* school) {
-    printf("Insert new student function not implemented yet.\n");
+    Student* new_student = malloc(sizeof(Student));
+    if (!new_student) {
+        printf("Failed to allocate memory for new student.\n");
+        return;
+    }
+
+    printf("Enter student's first name: ");
+    scanf("%s", new_student->first_name);
+
+    printf("Enter student's last name: ");
+    scanf("%s", new_student->last_name);
+
+    printf("Enter student's phone number: ");
+    scanf("%s", new_student->phone);
+
+    printf("Enter student's grade (1-%d): ", MAX_GRADES);
+    scanf("%d", &new_student->grade);
+
+    printf("Enter student's class (1-%d): ", MAX_CLASSES);
+    scanf("%d", &new_student->class);
+
+    printf("Enter student's grades for %d subjects:\n", SUBJECTS);
+    for (int i = 0; i < SUBJECTS; i++) {
+        printf("Subject %d: ", i + 1);
+        scanf("%d", &new_student->grades[i]);
+    }
+
+    // Validate input
+    if (new_student->grade < 1 || new_student->grade > MAX_GRADES ||
+        new_student->class < 1 || new_student->class > MAX_CLASSES) {
+        printf("Invalid grade or class. Student not added.\n");
+        free(new_student);
+        return;
+    }
+
+    // Calculate average grade
+    int sum = 0;
+    for (int i = 0; i < SUBJECTS; i++) {
+        sum += new_student->grades[i];
+    }
+    new_student->average_grade = (double)sum / SUBJECTS;
+
+    // Insert the new student
+    insert_student(school, new_student);
+
+    printf("Student %s %s added successfully.\n", new_student->first_name, new_student->last_name);
 }
 
 void deleteStudent(School* school) {
@@ -291,16 +428,32 @@ void printAllStudents(School* school) {
     printf("\nTotal number of students: %d\n", school->total_students);
 }
 
-void printTopNStudentsPerCourse(School* school) {
-    printf("Print top N students per course function not implemented yet.\n");
-}
-
 void printUnderperformedStudents(School* school, int threshold) {
     printf("Print underperformed students function not implemented yet.\n");
 }
 
 void printAverage(School* school) {
-    printf("Print average function not implemented yet.\n");
+    if (!school || school->total_students == 0) {
+        printf("No students in the school.\n");
+        return;
+    }
+
+    for (int grade = 0; grade < MAX_GRADES; grade++) {
+        Grade* grade_ptr = &school->grades[grade];
+        
+        if (grade_ptr->num_classes > 0) {
+            printf("\nGrade %d Averages:\n", grade + 1);
+            printf("------------------\n");
+            for (int subject = 0; subject < SUBJECTS; subject++) {
+                if (grade_ptr->course_counts[subject] > 0) {
+                    printf("Course %d: %.2f\n", subject + 1, grade_ptr->course_averages[subject]);
+                } else {
+                    printf("Course %d: No data\n", subject + 1);
+                }
+            }
+            printf("\n");
+        }
+    }
 }
 
 void exportDatabase(School* school, const char* file_name) {
@@ -320,10 +473,10 @@ void destroySchool(School* school) {
         }
     }
 
-    // Free students in classes
+    // Free heap structures
     for (int i = 0; i < MAX_GRADES; i++) {
         for (int j = 0; j < MAX_CLASSES; j++) {
-            free(school->grades[i].classes[j].students);
+            free(school->grades[i].classes[j].top_students);
         }
     }
 
@@ -333,6 +486,46 @@ void destroySchool(School* school) {
 
 
 
+void printTopStudentsPerCourse(School* school) {
+    for (int grade = 1; grade <= MAX_GRADES; grade++) {
+        for (int class = 1; class <= MAX_CLASSES; class++) {
+            Grade* grade_ptr = &school->grades[grade - 1];
+            Class* class_ptr = &grade_ptr->classes[class - 1];
+            
+            // Skip empty classes
+            if (class_ptr->num_students == 0) {
+                continue;
+            }
+
+            printf("\nTop %d students in Grade %d, Class %d:\n", TOP_STUDENTS, grade, class);
+            printf("----------------------------------------------------\n");
+
+            // Create a copy of the heap to sort
+            Heap temp_heap = *class_ptr->top_students;
+
+            // Sort the heap (extract min repeatedly)
+            HeapNode sorted[TOP_STUDENTS];
+            int sort_size = temp_heap.size;
+            for (int i = sort_size - 1; i >= 0; i--) {
+                sorted[i] = temp_heap.nodes[0];
+                temp_heap.nodes[0] = temp_heap.nodes[temp_heap.size - 1];
+                temp_heap.size--;
+                heapify_down(&temp_heap, 0);
+            }
+
+            // Print sorted students (in descending order of grades)
+            for (int i = 0; i < sort_size; i++) {
+                printf("%d. %s %s - Average Grade: %.2f\n", i + 1, 
+                       sorted[i].student->first_name, 
+                       sorted[i].student->last_name, 
+                       sorted[i].average_grade);
+            }
+
+            printf("\nClass Average: %.2f\n", class_ptr->average_grade);
+            printf("----------------------------------------------------\n");
+        }
+    }
+}
 
 void menu() {
     char file_name[] = "students_with_class.txt";
@@ -382,7 +575,7 @@ void menu() {
                 printAllStudents(school);
                 break;
             case 5:
-                printTopNStudentsPerCourse(school);
+                printTopStudentsPerCourse(school);
                 break;
             case 6:
                 printUnderperformedStudents(school, 15);
