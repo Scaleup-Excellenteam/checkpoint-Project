@@ -9,20 +9,23 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Raz");
 MODULE_DESCRIPTION("A simple example kernel module with netfilter hooks.");
-MODULE_VERSION("0.01");
+//MODULE_VERSION("0.01");
+
 
 static struct timer_list my_timer;
-static unsigned int current_hook = 0;
+static unsigned int hook_num = NF_INET_PRE_ROUTING;
+
+module_param(hook_num, uint, 0644);
+
 
 static void print_hook(struct timer_list *t)
 {
-    const char *hook_names[] = {"PREROUTING", "LOCAL_IN", "FORWARD", "LOCAL_OUT", "POSTROUTING"};
-    printk(KERN_INFO "Kernel module in %s hook\n", hook_names[current_hook]);
-    current_hook = (current_hook + 1) % 5;
-    
+    printk(KERN_INFO "Kernel module in hook %u\n", hook_num);
     mod_timer(&my_timer, jiffies + msecs_to_jiffies(10000));
 }
 
+
+//Jsut accepts and move on
 static unsigned int my_hook(void *priv, struct sk_buff *skb,
                             const struct nf_hook_state *state)
 {
@@ -54,31 +57,32 @@ static struct nf_hook_ops nfho[] = {
         .hooknum = NF_INET_PRE_ROUTING,
         .pf = NFPROTO_IPV4,
         .priority = NF_IP_PRI_FIRST,
-    },
-    {
-        .hook = my_hook,
-        .hooknum = NF_INET_LOCAL_IN,
-        .pf = NFPROTO_IPV4,
-        .priority = NF_IP_PRI_FIRST,
-    },
-    {
-        .hook = my_hook,
-        .hooknum = NF_INET_FORWARD,
-        .pf = NFPROTO_IPV4,
-        .priority = NF_IP_PRI_FIRST,
-    },
-    {
-        .hook = my_hook,
-        .hooknum = NF_INET_LOCAL_OUT,
-        .pf = NFPROTO_IPV4,
-        .priority = NF_IP_PRI_FIRST,
-    },
-    {
-        .hook = my_hook,
-        .hooknum = NF_INET_POST_ROUTING,
-        .pf = NFPROTO_IPV4,
-        .priority = NF_IP_PRI_FIRST,
-    },
+    }
+    // ,
+    // {
+    //     .hook = my_hook,
+    //     .hooknum = NF_INET_LOCAL_IN,
+    //     .pf = NFPROTO_IPV4,
+    //     .priority = NF_IP_PRI_FIRST,
+    // },
+    // {
+    //     .hook = my_hook,
+    //     .hooknum = NF_INET_FORWARD,
+    //     .pf = NFPROTO_IPV4,
+    //     .priority = NF_IP_PRI_FIRST,
+    // },
+    // {
+    //     .hook = my_hook,
+    //     .hooknum = NF_INET_LOCAL_OUT,
+    //     .pf = NFPROTO_IPV4,
+    //     .priority = NF_IP_PRI_FIRST,
+    // },
+    // {
+    //     .hook = my_hook,
+    //     .hooknum = NF_INET_POST_ROUTING,
+    //     .pf = NFPROTO_IPV4,
+    //     .priority = NF_IP_PRI_FIRST,
+    // },
 };
 
 static int __init my_module_init(void)
