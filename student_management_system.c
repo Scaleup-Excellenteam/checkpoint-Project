@@ -63,8 +63,6 @@ typedef struct {
     int total_students;
 } School;
 
-
-
 //functions
 unsigned long hash(const char* first_name, const char* last_name);
 HashTable* create_hash_table();
@@ -81,11 +79,13 @@ void printUnderperformedStudents(School* school, int threshold);
 void printAverage(School* school);
 void exportDatabase(School* school, const char* file_name);
 void destroySchool(School* school);
+Student* find(School* school, const char* first_name, const char* last_name);
 Heap* create_heap();
 void insert_or_update_heap(Heap* heap, Student* student, double average_grade);
 void heapify_up(Heap* heap, int index);
 void heapify_down(Heap* heap, int index);
 void swap_nodes(HeapNode* a, HeapNode* b);
+
 
 
 Heap* create_heap() {
@@ -334,11 +334,142 @@ void insertNewStudent(School* school) {
 }
 
 void deleteStudent(School* school) {
-    printf("Delete student function not implemented yet.\n");
-}
+    char first_name[MAX_NAME];
+    char last_name[MAX_NAME];
+    
+    printf("Enter the first name of the student to delete: ");
+    scanf("%s", first_name);
+    printf("Enter the last name of the student to delete: ");
+    scanf("%s", last_name);
 
+    unsigned long index = hash(first_name, last_name);
+    Student* current = school->hash_table.buckets[index];
+    Student* prev = NULL;
+
+    while (current != NULL) {
+        if (strcasecmp(current->first_name, first_name) == 0 && 
+            strcasecmp(current->last_name, last_name) == 0) {
+            // Remove from hash table
+            if (prev == NULL) {
+                school->hash_table.buckets[index] = current->next;
+            } else {
+                prev->next = current->next;
+            }
+
+            // Update grade statistics
+            Grade* grade = &school->grades[current->grade - 1];
+            for (int i = 0; i < SUBJECTS; i++) {
+                grade->course_totals[i] -= current->grades[i];
+                grade->course_counts[i]--;
+                if (grade->course_counts[i] > 0) {
+                    grade->course_averages[i] = grade->course_totals[i] / grade->course_counts[i];
+                } else {
+                    grade->course_averages[i] = 0;
+                }
+            }
+
+            // Update class statistics
+            Class* class = &grade->classes[current->class - 1];
+            class->num_students--;
+            class->total_grade -= current->average_grade;
+            if (class->num_students > 0) {
+                class->average_grade = class->total_grade / class->num_students;
+            } else {
+                class->average_grade = 0;
+            }
+
+            // Update top students heap (remove the student if present)
+            Heap* heap = class->top_students;
+            for (int i = 0; i < heap->size; i++) {
+                if (heap->nodes[i].student == current) {
+                    heap->nodes[i] = heap->nodes[heap->size - 1];
+                    heap->size--;
+                    heapify_down(heap, i);
+                    break;
+                }
+            }
+
+            school->total_students--;
+
+            printf("Student %s %s has been deleted.\n", first_name, last_name);
+            free(current);
+            return;
+        }
+        prev = current;
+        current = current->next;
+    }
+
+    printf("Student %s %s not found.\n", first_name, last_name);
+}
 void editStudentGrade(School* school) {
-    printf("Edit student grade function not implemented yet.\n");
+    char first_name[MAX_NAME];
+    char last_name[MAX_NAME];
+    int subject, new_grade;
+    
+    printf("Enter the first name of the student: ");
+    scanf("%s", first_name);
+    printf("Enter the last name of the student: ");
+    scanf("%s", last_name);
+
+    Student* student = find(school, first_name, last_name);
+    if (student == NULL) {
+        printf("Student not found.\n");
+        return;
+    }
+
+    printf("Current grades:\n");
+    for (int i = 0; i < SUBJECTS; i++) {
+        printf("Subject %d: %d\n", i + 1, student->grades[i]);
+    }
+
+    printf("Enter the subject number to edit (1-%d): ", SUBJECTS);
+    scanf("%d", &subject);
+    if (subject < 1 || subject > SUBJECTS) {
+        printf("Invalid subject number.\n");
+        return;
+    }
+    subject--; // Adjust for 0-based indexing
+
+    printf("Enter the new grade: ");
+    scanf("%d", &new_grade);
+    if (new_grade < 0 || new_grade > 100) {
+        printf("Invalid grade. Please enter a grade between 0 and 100.\n");
+        return;
+    }
+
+    int old_grade = student->grades[subject];
+    student->grades[subject] = new_grade;
+
+    // Recalculate student's average
+    int sum = 0;
+    for (int i = 0; i < SUBJECTS; i++) {
+        sum += student->grades[i];
+    }
+    double old_average = student->average_grade;
+    student->average_grade = (double)sum / SUBJECTS;
+
+    // Update grade statistics
+    Grade* grade = &school->grades[student->grade - 1];
+    grade->course_totals[subject] += (new_grade - old_grade);
+    grade->course_averages[subject] = grade->course_totals[subject] / grade->course_counts[subject];
+
+    // Update class statistics
+    Class* class = &grade->classes[student->class - 1];
+    class->total_grade += (student->average_grade - old_average);
+    class->average_grade = class->total_grade / class->num_students;
+
+    // Update top students heap
+    Heap* heap = class->top_students;
+    for (int i = 0; i < heap->size; i++) {
+        if (heap->nodes[i].student == student) {
+            heap->nodes[i].average_grade = student->average_grade;
+            heapify_down(heap, i);
+            heapify_up(heap, i);
+            break;
+        }
+    }
+
+    printf("Grade updated successfully.\n");
 }
 
 Student* find(School* school, const char* first_name, const char* last_name) {
