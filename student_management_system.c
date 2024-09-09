@@ -10,6 +10,7 @@
 #define MAX_CLASSES 10
 #define SUBJECTS 10
 #define TOP_STUDENTS 10
+#define THRESHOLD 60
 
 
 //structs
@@ -56,11 +57,21 @@ typedef struct {
     int size;
 } HashTable;
 
+typedef struct UnderperformingStudent {
+    Student* student;
+    struct UnderperformingStudent* next;
+} UnderperformingStudent;
+
+typedef struct {
+    UnderperformingStudent* head;
+} UnderperformingList;
+
 typedef struct {
     HashTable hash_table;
     Grade grades[MAX_GRADES];
     int num_of_grades;
     int total_students;
+    UnderperformingList underperforming_students;
 } School;
 
 //functions
@@ -272,6 +283,12 @@ School* read_data_from_file(const char* file_name) {
             }
             student->average_grade = (double)sum / SUBJECTS;
 
+            if(student->average_grade < THRESHOLD){
+                UnderperformingStudent* new_entry = malloc(sizeof(UnderperformingStudent));
+                new_entry->student = student;
+                new_entry->next = school->underperforming_students.head;
+                school->underperforming_students.head = new_entry;
+            }
             insert_student(school, student);
         } else {
             printf("Error parsing line: %s", line);
@@ -326,6 +343,12 @@ void insertNewStudent(School* school) {
         sum += new_student->grades[i];
     }
     new_student->average_grade = (double)sum / SUBJECTS;
+    if (new_student->average_grade < THRESHOLD) {
+        UnderperformingStudent* new_entry = malloc(sizeof(UnderperformingStudent));
+        new_entry->student = new_student;
+        new_entry->next = school->underperforming_students.head;
+        school->underperforming_students.head = new_entry;
+    } 
 
     // Insert the new student
     insert_student(school, new_student);
@@ -345,10 +368,25 @@ void deleteStudent(School* school) {
     unsigned long index = hash(first_name, last_name);
     Student* current = school->hash_table.buckets[index];
     Student* prev = NULL;
-
+    
     while (current != NULL) {
         if (strcasecmp(current->first_name, first_name) == 0 && 
             strcasecmp(current->last_name, last_name) == 0) {
+            
+            // Remove from underperforming list if present
+            if (current->average_grade < THRESHOLD) {
+                UnderperformingStudent** current_underperf = &school->underperforming_students.head;
+                while (*current_underperf != NULL) {
+                    if ((*current_underperf)->student == current) {
+                        UnderperformingStudent* to_remove = *current_underperf;
+                        *current_underperf = (*current_underperf)->next;
+                        free(to_remove);
+                        break;
+                    }
+                    current_underperf = &(*current_underperf)->next;
+                }
+            }
+            
             // Remove from hash table
             if (prev == NULL) {
                 school->hash_table.buckets[index] = current->next;
@@ -401,6 +439,7 @@ void deleteStudent(School* school) {
 
     printf("Student %s %s not found.\n", first_name, last_name);
 }
+
 void editStudentGrade(School* school) {
     char first_name[MAX_NAME];
     char last_name[MAX_NAME];
@@ -447,6 +486,24 @@ void editStudentGrade(School* school) {
     }
     double old_average = student->average_grade;
     student->average_grade = (double)sum / SUBJECTS;
+
+    if (student->average_grade < THRESHOLD && old_average >= THRESHOLD){
+        UnderperformingStudent* new_entry = malloc(sizeof(UnderperformingStudent));
+        new_entry->student = student;
+        new_entry->next = school->underperforming_students.head;
+        school->underperforming_students.head = new_entry;
+    } else if(student->average_grade >= THRESHOLD && old_average < THRESHOLD){    
+        UnderperformingStudent** current_underperf = &school->underperforming_students.head;
+        while (*current_underperf != NULL) {
+            if ((*current_underperf)->student == student) {
+                UnderperformingStudent* to_remove = *current_underperf;
+                *current_underperf = (*current_underperf)->next;
+                free(to_remove);
+                break;
+            }
+            current_underperf = &(*current_underperf)->next;
+        }     
+    }
 
     // Update grade statistics
     Grade* grade = &school->grades[student->grade - 1];
@@ -560,7 +617,23 @@ void printAllStudents(School* school) {
 }
 
 void printUnderperformedStudents(School* school, int threshold) {
-    printf("Print underperformed students function not implemented yet.\n");
+    if (!school || !school->underperforming_students.head) {
+        printf("No underperforming students.\n");
+        return;
+    }
+
+    printf("\n%-20s %-20s %-15s %-6s %-6s %-15s\n", 
+           "First Name", "Last Name", "Phone", "Grade", "Class", "Average Grade");
+    printf("--------------------------------------------------------------------------------\n");
+
+    UnderperformingStudent* current = school->underperforming_students.head;
+    while (current != NULL) {
+        Student* student = current->student;
+        printf("%-20s %-20s %-15s %-6d %-6d %-15.2f\n", 
+               student->first_name, student->last_name, student->phone, 
+               student->grade, student->class, student->average_grade);
+        current = current->next;
+    }
 }
 
 void printAverage(School* school) {
@@ -588,7 +661,43 @@ void printAverage(School* school) {
 }
 
 void exportDatabase(School* school, const char* file_name) {
-    printf("Export database function not implemented yet.\n");
+    FILE* file = fopen(file_name, "w");
+    if (!file) {
+        printf("Error opening file for writing.\n");
+        return;
+    }
+
+    fprintf(file, "Hashtable Data:\n");
+    for (int i = 0; i < HASH_SIZE; i++) {
+        Student* current = school->hash_table.buckets[i];
+        while (current) {
+            fprintf(file, "Name: %s %s, Phone: %s, Grade: %d, Class: %d, Average Grade: %.2f, Grades: ",
+                    current->first_name, current->last_name, current->phone,
+                    current->grade, current->class, current->average_grade);
+            for (int j = 0; j < SUBJECTS; j++) {
+                fprintf(file, " %d", current->grades[j]);
+            }
+            fprintf(file, "\n");
+            current = current->next;
+        }
+    }
+
+    fprintf(file, "\nHeap Data:\n");
+    for (int grade = 0; grade < MAX_GRADES; grade++) {
+        for (int class = 0; class < MAX_CLASSES; class++) {
+            Heap* heap = school->grades[grade].classes[class].top_students;
+            fprintf(file, "Grade %d, Class %d:\n", grade + 1, class + 1);
+            for (int i = 0; i < heap->size; i++) {
+                Student* student = heap->nodes[i].student;
+                fprintf(file, "Name: %s %s, Phone: %s, Grade: %d, Class: %d, Average Grade: %.2f\n",
+                        student->first_name, student->last_name, student->phone,
+                        student->grade, student->class, student->average_grade);
+            }
+        }
+    }
+
+    fclose(file);
+    printf("Database exported successfully to %s.\n", file_name);
 }
 
 void destroySchool(School* school) {
@@ -602,6 +711,14 @@ void destroySchool(School* school) {
             current = current->next;
             free(temp);
         }
+    }
+
+    // Free the underperforming students list
+    UnderperformingStudent* current_underperf = school->underperforming_students.head;
+    while (current_underperf != NULL) {
+        UnderperformingStudent* to_free = current_underperf;
+        current_underperf = current_underperf->next;
+        free(to_free);
     }
 
     // Free heap structures
