@@ -308,12 +308,9 @@ void insertNewStudent(School* school) {
         return;
     }
 
-    printf("Enter student's first name: ");
-    scanf("%s", new_student->first_name);
-
-    printf("Enter student's last name: ");
-    scanf("%s", new_student->last_name);
-
+    printf("Enter student's name: ");
+    scanf("%s %s", new_student->first_name, new_student->last_name);
+    
     printf("Enter student's phone number: ");
     scanf("%s", new_student->phone);
 
@@ -445,10 +442,8 @@ void editStudentGrade(School* school) {
     char last_name[MAX_NAME];
     int subject, new_grade;
     
-    printf("Enter the first name of the student: ");
-    scanf("%s", first_name);
-    printf("Enter the last name of the student: ");
-    scanf("%s", last_name);
+    printf("Enter the name of the student: ");
+    scanf("%s %s", first_name, last_name);
 
     Student* student = find(school, first_name, last_name);
     if (student == NULL) {
@@ -467,7 +462,7 @@ void editStudentGrade(School* school) {
         printf("Invalid subject number.\n");
         return;
     }
-    subject--; // Adjust for 0-based indexing
+    subject--;
 
     printf("Enter the new grade: ");
     scanf("%d", &new_grade);
